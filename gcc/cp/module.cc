@@ -3547,9 +3547,10 @@ public:
 
 public:
   void imex_query (const module_state *, bool exporting);
-  char *imex_response (const module_state *state)
+  char *imex_response (const module_state *state, bool exporting)
   {
-    return get_response (state->from_loc) > 0 ? bmi_response (state) : NULL;
+    return get_response (state->from_loc) > 0
+      ? bmi_response (state, exporting) : NULL;
   }
   const char *translate_include (location_t, cpp_include_type, const char *,
                                  bool, const char *);
@@ -3578,7 +3579,7 @@ private:
   }
   void response_unexpected (location_t);
   bool response_eol (location_t, bool ignore = false);
-  char *bmi_response (const module_state *);
+  char *bmi_response (const module_state *, bool exporting);
 
 private:
   static module_mapper *mapper;
@@ -10423,24 +10424,31 @@ module_mapper::handshake (location_t loc, const char *cookie)
 void
 module_mapper::imex_query (const module_state *state, bool exporting)
 {
-  send_command (state->from_loc, "%sPORT %s%s",
-		exporting ? "EX" : "IM",
-		state->get_flatname (true), state->get_flatname ());
+  /* Single-quote the header name to both distinguish it from module names
+     and to signal to the mapper that it is not re-searchable.  */
+  send_command (state->from_loc, "%sPORT %s%s%s%s",
+                exporting ? "EX" : "IM",
+                state->is_header () ? "'" : "",
+                state->get_flatname (true), state->get_flatname (),
+                state->is_header () ? "'" : "");
 }
 
 /* Response to import/export query.  */
 
 char *
-module_mapper::bmi_response (const module_state *state)
+module_mapper::bmi_response (const module_state *state, bool exporting)
 {
   char *filename = NULL;
 
-  switch (response_word (state->from_loc, "OK", "ERROR", NULL))
+  switch (response_word (state->from_loc,
+                         exporting ? "EXPORT" : "IMPORT",
+                         "ERROR",
+                         NULL))
     {
     default:
       break;
 
-    case 0: /* OK $bmifile  */
+    case 0: /* IMPORT/EXPORT $bmifile  */
       filename = response_token (state->from_loc, true);
       filename = maybe_strip_bmi_prefix (filename);
       response_eol (state->from_loc);
@@ -10465,7 +10473,7 @@ module_mapper::import_export (const module_state *state, bool export_p)
   if (mapper->is_server ())
     {
       mapper->imex_query (state, export_p);
-      return mapper->imex_response (state);
+      return mapper->imex_response (state, export_p);
     }
 
   return NULL;
@@ -15202,7 +15210,7 @@ process_deferred_imports (cpp_reader *reader)
       if (any && !imp->filename)
 	{
 	  imp->imported_p = false;
-	  if (char *fname = mapper->imex_response (imp))
+	  if (char *fname = mapper->imex_response (imp, !ix && has_bmi))
 	    imp->filename = xstrdup (fname);
 	}
 
