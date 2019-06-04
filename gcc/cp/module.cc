@@ -3331,10 +3331,9 @@ module_state::module_state (tree name, module_state *parent, bool partition)
     = imported_p = alias_p = from_partition_p = false;
   if (name && TREE_CODE (name) == STRING_CST)
     header_p = true;
+
   gcc_checking_assert (header_p
-		       ? (IS_ABSOLUTE_PATH (TREE_STRING_POINTER (name))
-			  || TREE_STRING_POINTER (name)[0] == '.')
-		       : !name || ISALPHA (IDENTIFIER_POINTER (name)[0]));
+                       || !name || ISALPHA (IDENTIFIER_POINTER (name)[0]));
   gcc_checking_assert (!(parent && header_p));
 }
 
@@ -9619,9 +9618,12 @@ get_module (tree name, module_state *parent, bool partition)
 static module_state *
 get_module (const char *ptr, module_state *parent)
 {
+  // FIXME: No longer used for header units.
+#if 0
   if (IS_ABSOLUTE_PATH (ptr) || ptr[0] == '.')
     /* A header name.  */
     return get_module (build_string (strlen (ptr), ptr));
+#endif
 
   int partition = 0;
   if (!parent)
@@ -10029,7 +10031,20 @@ module_mapper::module_mapper (location_t loc, const char *option)
 
 	    starting = false;
 	    file = maybe_strip_bmi_prefix (file);
-	    module_state *state = get_module (mod, NULL);
+
+            module_state *state = NULL;
+            if (mod[0] == '\'')
+            {
+              /* Header unit mapping.  */
+              size_t len = strlen (mod);
+              if (len > 1 && mod[len - 1] == '\'')
+                state = get_module (build_string (len - 2, mod + 1), NULL);
+            }
+            else
+              // FIXME: get_module() accepts invalid names (e.g., 123mod)
+              // which then trigger assertions down the line.
+              state = get_module (mod, NULL);
+
 	    if (!state)
 	      response_unexpected (loc);
 	    else if (!state->filename)
@@ -10515,6 +10530,10 @@ module_mapper::translate_include (location_t loc,
 
   if (mapper->is_server ())
     {
+      // FIXME: Why not use file mapping for include translation? If there is
+      // a mapping, then the header is importable and if it's importable, then
+      // it should be translated (15.2/7).
+
       send_command (loc, "%s %c%s%c %s",
                     type == CPP_IT_INCLUDE ? "INCLUDE" : "IMPORT",
                     angle ? '<' : '"', fname, angle ? '>' : '"',
@@ -10730,6 +10749,7 @@ module_state::write_imports (bytes_out &sec, bool direct)
 			   ix, imp->remap, imp, imp->crc);
 	  sec.u (imp->remap);
 	  sec.str (imp->get_flatname ());
+          sec.u (imp->header_p);
 	  sec.u32 (imp->crc);
 	  if (direct)
 	    {
@@ -10761,7 +10781,10 @@ module_state::read_imports (bytes_in &sec, cpp_reader *reader, line_maps *lmaps)
 	}
 
       const char *name = sec.str (NULL);
-      module_state *imp = get_module (name, this);
+      bool header = sec.u ();
+      module_state *imp = header
+        ? get_module (build_string (strlen (name), name), NULL /* parent */)
+        : get_module (name, this);
       unsigned crc = sec.u32 ();
       bool exported = false;
 
@@ -14899,6 +14922,10 @@ module_cpp_deferred_macro (cpp_reader *reader, location_t loc,
    path.  Note that we do never do \ processing of the string, as that
    matches the preprocessor's behaviour.  */
 
+// FIXME: No longer used.
+// NOTE:  Also map_module_header() declaration in cp-tree.h.
+#if 0
+
 static const char *
 canonicalize_header_name (cpp_reader *reader, location_t loc, bool unquoted,
 			  const char *str, size_t &len_r)
@@ -14964,6 +14991,7 @@ module_map_header (cpp_reader *reader, location_t loc, bool search,
   str = canonicalize_header_name (search ? reader : NULL, loc, false, str, len);
   return build_string (len, str);
 }
+#endif
 
 /* Figure out what to do with an included or imported header.  For include we
    can return NAME to cause a re-search, PATH to include, or translate it to
@@ -15145,7 +15173,6 @@ module_begin_main_file (cpp_reader *reader, line_maps *lmaps,
 	  /* Set the module header name from the main_input_filename.  */
 	  const char *main = main_input_filename;
 	  size_t len = strlen (main);
-	  main = canonicalize_header_name (NULL, 0, true, main, len);
 	  module_state *state = get_module (build_string (len, main));
 	  if (!flag_preprocess_only)
 	    {
