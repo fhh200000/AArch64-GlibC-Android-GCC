@@ -1078,7 +1078,18 @@ client::action ()
 	      case 2: /* DONE */
 	      case 3: /* INCLUDE */
 		{
-		  char *module = read.get_token (id);
+		  const char *module = read.get_token (id);
+
+                  /* See if this is a header unit.  */
+                  char type (module[0]);
+                  if (type == '<' || type == '"' || type == '\'')
+                    {
+                      /* There will be no path if the header wasn't found.  */
+                      module = read.eol_p () ? "" : read.get_token (id);
+                    }
+                  else
+                    type = '\0';
+
 		  read.get_eol (id);
 		  switch (word)
 		    {
@@ -1093,25 +1104,28 @@ client::action ()
 		    case 3:
 		      {
 			bool do_imp = false;
-			if (module_map)
-			  {
-			    module_map_t::iterator iter
-			      = module_map->find (module);
-			    if (iter != module_map->end ())
-			      do_imp = true;
-			  }
-			if (!do_imp)
-			  /* See if the BMI exists.  */
-			  if (const char *bmi = module2bmi (module))
-			    {
-			      int fd = ::open (bmi, O_RDONLY);
-			      if (fd >= 0)
-				{
-				  ::close (fd);
-				  do_imp = true;
-				}
-			    }
-			write.send_response (id, do_imp ? "IMPORT" : "TEXT");
+                        if (*module != '\0' && type != '\'')
+                          {
+                            if (module_map)
+			      {
+                                module_map_t::iterator iter
+                                  = module_map->find (module);
+                                if (iter != module_map->end ())
+                                  do_imp = true;
+                              }
+                            if (!do_imp)
+                              /* See if the BMI exists.  */
+                              if (const char *bmi = module2bmi (module))
+                                {
+                                  int fd = ::open (bmi, O_RDONLY);
+                                  if (fd >= 0)
+                                    {
+                                      ::close (fd);
+                                      do_imp = true;
+                                    }
+                                }
+                          }
+			write.send_response (id, do_imp ? "IMPORT" : "INCLUDE");
 		      }
 		      break;
 
