@@ -1,3 +1,11 @@
+本工具用于生成为AArch64 Android编译的GlibC程序。  
+This tool is to generate GlibC-based programs on AArch64 Android.  
+**注意，您需要在编译时手动指定Android设备上的GlibC地址。**  
+**ATTENTION: You need to MANUALLY SPECIFY the location of GLibC on Android.**  
+  
+  
+**以下为原版说明**  
+**The Original README is as follows**  
 This directory contains the GNU Compiler Collection (GCC).
 
 The GNU Compiler Collection is free software.  See the files whose
